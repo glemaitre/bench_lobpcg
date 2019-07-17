@@ -7,10 +7,12 @@ import os.path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import neurtu
 import scipy as sp
+import neurtu
 
-from sklearn.datasets import fetch_lfw_people
+import threadpoolctl
+from threadpoolctl import threadpool_limits
+
 from sklearn.datasets import fetch_openml
 from sklearn.datasets import fetch_20newsgroups_vectorized
 from sklearn.datasets import fetch_olivetti_faces
@@ -145,7 +147,7 @@ def benchmark_sparse():
                             'n_features': n_features,
                             'nnz': X.nnz,
                             'density': density,
-                            'preconditioner': preconditioner,
+                            'preconditioner': str(preconditioner),
                         }
                         yield neurtu.delayed(randomized_svd, tags=params)(
                             X, n_components=n_components,
@@ -153,7 +155,8 @@ def benchmark_sparse():
                         )
 
 # %%
-df = neurtu.timeit(benchmark_sparse(), repeat=3).wall_time
+with threadpool_limits(limits=16):
+    df = neurtu.timeit(benchmark_sparse(), repeat=3).wall_time
 
 # %%
 def highlight_best(s):
@@ -165,13 +168,16 @@ df['mean'].unstack().round(2).style.apply(highlight_best, axis=1)
 
 # %%
 def benchmark_dense():
-    for n_features in [50, 500, 1000, 5000]:
-        for n_samples in [5000, 20000, 50000, 100000, 1000000]:
-            if n_features * n_samples > (5000*100000):
+    for ratio in [10, 100, 1000, 2500, 5000, 7500, 10000]:
+        for n_features in [50, 500, 1000]:
+    # for n_features in [50, 500, 1000, 5000]:
+    #     for n_samples in [5000, 20000, 50000, 100000, 1000000]:
+            n_samples = int(n_features * ratio)
+            if n_features * n_samples > (10000*100000):
                 continue
             rng = np.random.RandomState(42)
             X = rng.randn(n_samples, n_features)
-            for n_components in [2, 20, 100]:
+            for n_components in [2, 10, 25, 50, 100]:
                 if n_components >= n_features:
                     continue
                 for preconditioner in [None, 'lobpcg']:
@@ -179,7 +185,7 @@ def benchmark_dense():
                         'n_components': n_components,
                         'n_samples': n_samples,
                         'n_features': n_features,
-                        'preconditioner': preconditioner,
+                        'preconditioner': str(preconditioner),
                     }
                     yield neurtu.delayed(randomized_svd, tags=params)(
                         X, n_components=n_components,
@@ -188,8 +194,39 @@ def benchmark_dense():
 
 
 #%%
-df = neurtu.timeit(benchmark_dense(), repeat=3).wall_time
+with threadpool_limits(limits=16):
+    df = neurtu.timeit(benchmark_dense(), repeat=3).wall_time
 
 
 #%%
 df['mean'].unstack().round(2).style.apply(highlight_best, axis=1)
+
+#%%
+# fig, ax = plt.subplots()
+df_mean = df['mean'].unstack()
+df_speed_up = df_mean['None'] / df_mean['lobpcg']
+color = ['C1', 'C2', 'C3', 'C4', 'C5']
+marker = ['*', '.', 's', '.', 'H']
+for c, m, (idx, df_comp) in zip(color, marker,
+                                df_speed_up.groupby('n_components')):
+    xx = df_comp.reset_index()[['n_samples', 'n_features', 0]]
+    xx['ratio size'] = xx['n_samples'] / xx['n_features']
+    xx = xx.drop(columns=['n_samples', 'n_features'])
+    xx = xx.rename(columns={0: 'speed-up'})
+    xx.plot.scatter(
+        x='ratio size', y='speed-up', c=c, marker=m,
+        label='{} components'.format(idx), alpha=0.3
+    )
+
+#%%
+# fig, ax = plt.subplots()
+df_mean = df['mean'].unstack()
+df_mean['speed-up'] = df_mean['None'] / df_mean['lobpcg']
+df_mean = df_mean.reset_index()
+df_mean['ratio size'] = df_mean['n_samples'] / df_mean['n_features']
+df_speed_up = df_mean[
+    ['n_components', 'speed-up', 'ratio size', 'n_samples', 'n_features']
+]
+for (idx, df_ratio) in df_speed_up.groupby('ratio size'):
+    df_ratio.plot.scatter(x='n_components', y='speed-up')
+    plt.title('{} ratio size'.format(int(idx)))
