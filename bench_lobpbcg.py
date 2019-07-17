@@ -167,24 +167,24 @@ df['mean'].unstack().round(2).style.apply(highlight_best, axis=1)
 def benchmark_dense():
     for n_features in [50, 500, 1000, 5000]:
         for n_samples in [5000, 20000, 50000, 100000, 1000000]:
-                if n_features * n_samples > (5000*100000):
+            if n_features * n_samples > (5000*100000):
+                continue
+            rng = np.random.RandomState(42)
+            X = rng.randn(n_samples, n_features)
+            for n_components in [2, 20, 100]:
+                if n_components >= n_features:
                     continue
-                rng = np.random.RandomState(42)
-                X = rng.randn(n_samples, n_features)
-                for n_components in [2, 20, 100]:
-                    if n_components >= n_features:
-                        continue
-                    for preconditioner in [None, 'lobpcg']:
-                        params = {
-                            'n_components': n_components,
-                            'n_samples': n_samples,
-                            'n_features': n_features,
-                            'preconditioner': preconditioner,
-                        }
-                        yield neurtu.delayed(randomized_svd, tags=params)(
-                            X, n_components=n_components,
-                            preconditioner=preconditioner
-                        )
+                for preconditioner in [None, 'lobpcg']:
+                    params = {
+                        'n_components': n_components,
+                        'n_samples': n_samples,
+                        'n_features': n_features,
+                        'preconditioner': preconditioner,
+                    }
+                    yield neurtu.delayed(randomized_svd, tags=params)(
+                        X, n_components=n_components,
+                        preconditioner=preconditioner
+                    )
 
 
 #%%
